@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     DEBUG_MODE: bool = False
     LOG_LEVEL: str = "INFO"
+    ACCESS_CODE: str = ""
 
     @validator("ADMIN_USER_IDS", pre=True)
     def parse_admin_ids(cls, v):
