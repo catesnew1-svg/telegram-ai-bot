@@ -1,3 +1,4 @@
+import io
 import logging
 from telegram import Update
 from telegram.ext import (
@@ -11,19 +12,21 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+
 def is_authenticated(context) -> bool:
     return context.user_data.get("authenticated", False)
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if is_authenticated(context):
-        skill_active = "✅ Ada" if context.user_data.get("system_prompt") else "⚙️ Default"
+        skill_active = "✅ Custom" if context.user_data.get("system_prompt") else "⚙️ Default"
         await update.message.reply_text(
             f"👋 Kamu sudah login!\n\n"
             f"📄 Skill aktif: {skill_active}\n\n"
             f"Kirim pesan untuk chat dengan AI.\n"
             f"Kirim file .md untuk ganti skill bot.\n\n"
-            f"/skill - Lihat skill aktif\n"
-            f"/clear - Reset chat\n"
+            f"/skill - Lihat isi skill aktif\n"
+            f"/clear - Reset riwayat chat\n"
             f"/logout - Keluar"
         )
     else:
@@ -32,6 +35,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown"
         )
 
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_authenticated(context):
         await update.message.reply_text("🔐 Masukkan kode akses dulu.")
@@ -39,28 +43,40 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(
         "🤖 *Bantuan*\n\n"
         "/start - Menu utama\n"
-        "/skill - Lihat skill aktif\n"
+        "/skill - Lihat isi skill aktif\n"
         "/clear - Reset riwayat chat\n"
         "/logout - Keluar\n\n"
-        "📄 *Kirim file .md* untuk update skill bot!",
+        "📄 *Kirim file .md* untuk update skill bot!\n"
+        "💬 Ketik *'lihat skill'* untuk lihat isi skill.",
         parse_mode="Markdown"
     )
+
 
 async def show_skill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_authenticated(context):
         await update.message.reply_text("🔐 Masukkan kode akses dulu.")
         return
+
     skill = context.user_data.get("system_prompt")
-    if skill:
-        preview = skill[:800] + "..." if len(skill) > 800 else skill
+    if not skill:
         await update.message.reply_text(
-            f"📄 *Skill aktif (custom):*\n\n{preview}",
+            "⚙️ Pakai skill default.\n\nKirim file .md untuk load skill custom!"
+        )
+        return
+
+    if len(skill) <= 3000:
+        await update.message.reply_text(
+            f"📄 *Isi Skill Aktif:*\n\n```\n{skill}\n```",
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text(
-            "⚙️ Menggunakan skill default.\n\nKirim file .md untuk load skill custom!"
+        file_bytes = skill.encode("utf-8")
+        await update.message.reply_document(
+            document=io.BytesIO(file_bytes),
+            filename="SKILL_AKTIF.md",
+            caption="📄 Ini isi skill yang sedang aktif (terlalu panjang, dikirim sebagai file)."
         )
+
 
 async def clear_context(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_authenticated(context):
@@ -69,9 +85,11 @@ async def clear_context(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     context.user_data["history"] = []
     await update.message.reply_text("🗑️ Riwayat chat dihapus!")
 
+
 async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.clear()
     await update.message.reply_text("👋 Logout berhasil.\n\nKetik /start untuk login lagi.")
+
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_authenticated(context):
@@ -99,7 +117,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"✅ *Skill berhasil dimuat!*\n\n"
             f"📄 File: `{file_name}`\n"
             f"📝 {len(skill_content)} karakter\n\n"
-            f"Chat history direset. Silakan mulai chat!",
+            f"Chat history direset. Silakan mulai chat!\n"
+            f"Ketik /skill untuk lihat isinya.",
             parse_mode="Markdown"
         )
         logger.info(f"Skill dimuat: {file_name} ({len(skill_content)} chars)")
@@ -110,9 +129,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error(f"Error membaca file: {e}")
         await update.message.reply_text("❌ Gagal membaca file.")
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message.text
 
+    # Belum login → cek kode akses
     if not is_authenticated(context):
         if settings.ACCESS_CODE and message == settings.ACCESS_CODE:
             context.user_data["authenticated"] = True
@@ -126,6 +147,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("❌ Kode salah. Coba lagi:")
         return
 
+    # Deteksi keyword lihat skill
+    keywords_skill = ["lihat skill", "show skill", "isi skill", "skill aktif", "tampilkan skill"]
+    if any(kw in message.lower() for kw in keywords_skill):
+        await show_skill(update, context)
+        return
+
+    # Proses pesan ke AI
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     history = context.user_data.get("history", [])
@@ -147,8 +175,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Error kirim pesan: {e}")
         await update.message.reply_text("❌ Gagal mengirim respons.")
 
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(f"Error: {context.error}")
+
 
 def register_handlers(application):
     application.add_handler(CommandHandler("start", start))
