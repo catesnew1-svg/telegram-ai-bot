@@ -1,10 +1,19 @@
 import logging
 import json
+import os
 from typing import Dict, Any, Optional
 import requests
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+def load_default_skill() -> str:
+    skill_path = os.path.join(os.path.dirname(__file__), "SKILL.md")
+    try:
+        with open(skill_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "Kamu adalah asisten AI yang membantu dan ramah. Jawab dalam Bahasa Indonesia kecuali diminta sebaliknya."
 
 class KiroAPI:
     def __init__(self):
@@ -14,10 +23,14 @@ class KiroAPI:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
+        self.system_prompt = load_default_skill()
+        logger.info("KiroAPI siap")
 
-    def send_message(self, message: str, history: list = None) -> Dict[str, Any]:
+    def send_message(self, message: str, history: list = None, system_prompt: str = None) -> Dict[str, Any]:
         try:
-            messages = [{"role": "system", "content": "Kamu adalah asisten AI yang membantu dan ramah. Jawab dalam Bahasa Indonesia kecuali user minta bahasa lain."}]
+            active_prompt = system_prompt if system_prompt else self.system_prompt
+
+            messages = [{"role": "system", "content": active_prompt}]
             if history:
                 messages.extend(history)
             messages.append({"role": "user", "content": message})
@@ -29,7 +42,12 @@ class KiroAPI:
                 "temperature": 0.7
             }
 
-            response = requests.post(f"{self.api_url}/chat/completions", headers=self.headers, json=payload, timeout=30)
+            response = requests.post(
+                f"{self.api_url}/chat/completions",
+                headers=self.headers,
+                json=payload,
+                timeout=30
+            )
             response.raise_for_status()
             return response.json()
 
